@@ -61,7 +61,7 @@ volucer (Rust)
   └─ http listener ──► framed protocol over stdin/stdout ──► azera-worker.php
                                                               ├─ WorkerBootstrap::boot()    (once)
                                                               └─ VolucerHttpWorker::run() (per request)
-                                                                   ├─ WorkerSession::begin()
+                                                                   ├─ Volucer\Session::begin()
                                                                    ├─ VolucerToAzeraRequest
                                                                    ├─ Router → Dispatcher → Controller
                                                                    └─ clearRequestScope()      (after each)
@@ -85,7 +85,7 @@ is what a SAPI does for free, and this package does all of it:
 
 Sessions work with no special configuration, because PHP's own session cookie handling cannot be used in a
 worker. `header()`, `setcookie()` and `headers_list()` are all no-ops under a worker's SAPI, so a
-`Set-Cookie` PHP writes would never reach the client. `WorkerSession` (in `sailera/azera-framework`; every
+`Set-Cookie` PHP writes would never reach the client. `Volucer\Session` (in `sailantis/volucer-worker`; every
 adapter needs the same two halves) therefore:
 
 - reads the session id from the request's `Cookie` header before the application runs, so
@@ -144,8 +144,10 @@ different:
   protocol already speaks CGI, so there is no intermediate message to build and no `nyholm/psr7` dependency.
 - **No reflection.** Azera's `Request` now has a `setRawBody()` method instead of the private-property poke
   the RoadRunner adapter previously needed.
-- **Sessions work.** Both adapters share `Azera\Http\WorkerSession`, which carries the session id in from
-  the `Cookie` header and the `Set-Cookie` back out, since a worker's SAPI has no header channel.
+- **Sessions work.** Both adapters share `Volucer\Session`, from the SDK itself rather than from the
+  framework, which carries the session id in from the `Cookie` header and the `Set-Cookie` back out, since a
+  worker's SAPI has no header channel. It lives in `sailantis/volucer-worker` because the session handoff is
+  part of the worker contract — a third-party adapter should not have to depend on this framework to get it.
 - **`dd()` cannot kill the worker.** In halt mode it becomes a 500 carrying the dump, as on RoadRunner.
 
 ---

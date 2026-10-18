@@ -9,7 +9,7 @@ use Azera\Core\Dispatcher;
 use Azera\Core\Router;
 use Azera\Http\Request as AzeraRequest;
 use Azera\Http\Response as AzeraResponse;
-use Azera\Http\WorkerSession;
+use Volucer\Session;
 use Azera\Volucer\Http\Adapter\VolucerToAzeraRequest;
 use Closure;
 use Clarity\Debug\DumpHaltException;
@@ -41,10 +41,14 @@ final class VolucerHttpWorker
 
     /**
      * Native sessions are a SAPI service too, and a worker has no SAPI; this
-     * carries the session id in and the cookie back out. Shared with the
-     * RoadRunner adapter, which needs exactly the same two halves.
+     * carries the session id in and the cookie back out.
+     *
+     * `Volucer\Session` is the SDK's own implementation rather than one of
+     * ours. The session handoff is part of the worker contract, not part of
+     * Azera, and a helper that lives in a framework is not one a third-party
+     * adapter can use when the protocol has nothing to do with that framework.
      */
-    private WorkerSession $session;
+    private Session $session;
 
     /**
      * @param Closure(string $path, string $method): AzeraResponse|null $notFoundHandler
@@ -57,7 +61,7 @@ final class VolucerHttpWorker
         private readonly Dispatcher $dispatcher,
         private readonly ?Closure $notFoundHandler = null,
     ) {
-        $this->session = new WorkerSession();
+        $this->session = new Session();
     }
 
     /**
@@ -119,7 +123,7 @@ final class VolucerHttpWorker
         // Adopt the client's session before the application runs, so the
         // session middleware finds `$_COOKIE` the way it would under FPM.
         $_COOKIE = $request->cookies();
-        $this->session->begin($_COOKIE);
+        $this->session->beginWithCookies($_COOKIE);
 
         $path = $azeraRequest->path();
         $method = $azeraRequest->method();
