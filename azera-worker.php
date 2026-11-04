@@ -29,8 +29,6 @@ declare(strict_types=1);
  * place for one-time setup that needs the container.
  */
 
-use Azera\AppContext;
-use Azera\Http\Response as AzeraResponse;
 use Azera\Volucer\Http\VolucerHttpWorker;
 use Azera\Volucer\WorkerBootstrap;
 
@@ -46,7 +44,7 @@ $autoload = $projectRoot . '/vendor/autoload.php';
 if (!is_file($autoload)) {
     throw new RuntimeException(
         'No vendor/autoload.php in ' . $projectRoot
-        . '. Set AZERA_PROJECT_ROOT, or run composer install there.'
+            . '. Set AZERA_PROJECT_ROOT, or run composer install there.'
     );
 }
 require $autoload;
@@ -64,7 +62,7 @@ WorkerBootstrap::enableDumpHalt($context);
 // 2. Application-specific worker configuration, if it wants any
 // ---------------------------------------------------------------------------
 $notFoundHandler = null;
-$customise = $projectRoot . '/volucer-worker.php';
+$customise       = $projectRoot . '/volucer-worker.php';
 
 if (is_file($customise)) {
     /** @var mixed $callable */
