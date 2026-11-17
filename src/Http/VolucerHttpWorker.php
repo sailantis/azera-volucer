@@ -184,19 +184,23 @@ final class VolucerHttpWorker
     }
 
     /**
-     * Convert Azera's header map into the SDK's ordered list form.
+     * Convert Azera's header fields into the SDK's ordered pair form.
      *
-     * Azera holds one value per name, while the wire format carries a list of
-     * pairs with order and case preserved, so the map is simply unrolled.
+     * The SDK takes one pair per value, so a repeated field such as `Set-Cookie`
+     * (a cookie the application set, or the one the framework queued via
+     * `Cookies::applyTo()`) stays one pair per cookie.
      *
-     * @param array<string, string> $headers
+     * @param array<string, list<string>> $headers Values by field name.
      * @return list<array{0: string, 1: string}>
      */
     private static function headers(array $headers): array
     {
         $pairs = [];
-        foreach ($headers as $name => $value) {
-            $pairs[] = [(string) $name, (string) $value];
+
+        foreach ($headers as $name => $values) {
+            foreach ($values as $value) {
+                $pairs[] = [(string) $name, $value];
+            }
         }
 
         return $pairs;

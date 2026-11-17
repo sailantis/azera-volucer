@@ -50,7 +50,12 @@ final class VolucerToAzeraRequest
         // Proxy-header trust, mirroring the RoadRunner adapter: volucer is
         // expected to sit behind a reverse proxy, so scheme(), host(), port()
         // and clientIp() should honour X-Forwarded-* as they do under FPM.
-        $azera = new AzeraRequest($server, $request->query(), $post, [], true);
+        //
+        // The client's cookies are handed over explicitly. They are read from the
+        // transport, not from `$_COOKIE`: the framework's `Cookies` jar reads
+        // through this request, and a worker may choose not to install the CGI
+        // superglobals at all.
+        $azera = new AzeraRequest($server, $request->query(), $post, [], true, $request->cookies());
 
         // Under a worker, `php://input` is not the body — stdin is the protocol
         // channel, and Azera's `body()` falls back to reading it. Hand the body

@@ -223,8 +223,8 @@ final class VolucerHttpWorkerTest extends TestCase
     {
         $worker = $this->worker(static fn (): AzeraResponse => (new AzeraResponse())
             ->setStatus(201)
-            ->setHeader('Content-Type', 'application/json')
-            ->setHeader('X-Trace', 'abc')
+            ->replaceHeader('Content-Type: application/json')
+            ->replaceHeader('X-Trace: abc')
             ->write('{"ok":true}'));
 
         $response = $worker->dispatch(self::request('GET', '/nope'));
