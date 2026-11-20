@@ -16,17 +16,22 @@ declare(strict_types=1);
  * each request, so nothing leaks from one request into the next.
  *
  * An application does not need to change this file. To customise the worker —
- * a friendly 404, or one-time setup that needs the booted container — put a
- * `volucer-worker.php` in the project root that returns a callable:
+ * one-time setup that needs the booted container — put a `volucer-worker.php` in
+ * the project root that returns a callable:
  *
  *     <?php
- *     return static function (AppContext $ctx): ?Closure {
- *         return static fn (string $path, string $method) => Response::status(404);
+ *     return static function (AppContext $ctx): void {
+ *         session_name('_s');
  *     };
  *
- * The callable receives the booted AppContext and may return a not-found
- * handler (or null). It runs before the first request, so it is also the right
- * place for one-time setup that needs the container.
+ * The callable receives the booted AppContext and runs before the first request,
+ * so it is the right place for process-wide settings such as the session cookie
+ * name or a header-validation switch.
+ *
+ * A 404 page is *not* configured here. Register a
+ * `Azera\Core\NotFoundHandlerInterface` on the context in your application's
+ * bootstrap instead: the same handler then serves the FPM entry point and every
+ * worker, rather than each entry point carrying its own copy.
  */
 
 use Azera\Volucer\Http\VolucerHttpWorker;
@@ -61,8 +66,7 @@ WorkerBootstrap::enableDumpHalt($context);
 // ---------------------------------------------------------------------------
 // 2. Application-specific worker configuration, if it wants any
 // ---------------------------------------------------------------------------
-$notFoundHandler = null;
-$customise       = $projectRoot . '/volucer-worker.php';
+$customise = $projectRoot . '/volucer-worker.php';
 
 if (is_file($customise)) {
     /** @var mixed $callable */
@@ -72,16 +76,7 @@ if (is_file($customise)) {
         throw new RuntimeException('volucer-worker.php must return a callable.');
     }
 
-    /** @var mixed $handler */
-    $handler = $callable($context);
-
-    if ($handler !== null && !$handler instanceof Closure) {
-        throw new RuntimeException(
-            'volucer-worker.php must return a Closure or null, got ' . get_debug_type($handler) . '.'
-        );
-    }
-
-    $notFoundHandler = $handler;
+    $callable($context);
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +86,6 @@ $worker = new VolucerHttpWorker(
     $context,
     $context->router(),
     $context->dispatcher(),
-    notFoundHandler: $notFoundHandler,
 );
 
 $worker->run();

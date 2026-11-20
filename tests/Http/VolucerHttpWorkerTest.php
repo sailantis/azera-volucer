@@ -7,6 +7,7 @@ namespace Azera\Volucer\Tests\Http;
 use Azera\AppContext;
 use Azera\Core\Controller;
 use Azera\Core\Dispatcher;
+use Azera\Core\NotFoundHandlerInterface;
 use Azera\Core\Router;
 use Azera\Http\Request as AzeraRequest;
 use Azera\Http\Response as AzeraResponse;
@@ -86,7 +87,7 @@ final class VolucerHttpWorkerTest extends TestCase
         );
     }
 
-    private function worker(?callable $notFound = null): VolucerHttpWorker
+    private function worker(?NotFoundHandlerInterface $notFound = null): VolucerHttpWorker
     {
         $router = new Router();
         $router->add('GET', '/who', EchoController::class . '::whoAction');
@@ -102,7 +103,7 @@ final class VolucerHttpWorkerTest extends TestCase
             AppContext::instance(),
             $router,
             $dispatcher,
-            $notFound === null ? null : \Closure::fromCallable($notFound),
+            $notFound,
         );
     }
 
@@ -172,10 +173,12 @@ final class VolucerHttpWorkerTest extends TestCase
 
     public function testAnApplicationNotFoundHandlerCanOverrideTheDefault(): void
     {
-        $worker = $this->worker(static fn (string $path, string $method): AzeraResponse => AzeraResponse::html(
-            '<h1>lost</h1>',
-            404,
-        ));
+        $worker = $this->worker(new class implements NotFoundHandlerInterface {
+            public function for(AzeraRequest $request): AzeraResponse
+            {
+                return AzeraResponse::html('<h1>lost</h1>', 404);
+            }
+        });
 
         $response = $worker->dispatch(self::request('GET', '/nope'));
 
@@ -185,7 +188,12 @@ final class VolucerHttpWorkerTest extends TestCase
 
     public function testAnApplicationNotFoundHandlerMayRedirect(): void
     {
-        $worker = $this->worker(static fn (): AzeraResponse => AzeraResponse::redirect('/'));
+        $worker = $this->worker(new class implements NotFoundHandlerInterface {
+            public function for(AzeraRequest $request): AzeraResponse
+            {
+                return AzeraResponse::redirect('/');
+            }
+        });
 
         $response = $worker->dispatch(self::request('GET', '/nope'));
 
@@ -193,39 +201,51 @@ final class VolucerHttpWorkerTest extends TestCase
         $this->assertContains(['Location', '/'], $response->headers);
     }
 
-    /**
-     * A handler that returns something other than a response or null is a bug in
-     * the application, and saying so is more useful than a silent 404.
-     */
-    public function testANotFoundHandlerReturningTheWrongTypeIsRejected(): void
+    public function testAnUnknownPathIsA404WithoutAnyHandler(): void
     {
-        $worker = $this->worker(static fn (): string => 'not a response');
+        // No handler on the worker and none on the context: the container's
+        // PlainNotFoundHandler default answers, so no entry point has to invent one.
+        $response = $this->worker()->dispatch(self::request('GET', '/nope'));
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('must return an Azera\Http\Response or null');
+        $this->assertSame(404, $response->status);
+    }
 
-        $worker->dispatch(self::request('GET', '/nope'));
+    public function testAPathThatServesAnotherMethodAnswers405(): void
+    {
+        $response = $this->worker()->dispatch(self::request('DELETE', '/who'));
+
+        $this->assertSame(405, $response->status);
+        $this->assertContains(
+            ['Allow', 'GET, POST, HEAD'],
+            $response->headers,
+        );
     }
 
     public function testAThrowingControllerIsA500AndKeepsTheWorkerAlive(): void
     {
         $worker = $this->worker();
 
-        // `dispatch()` lets the throwable out — the loop is what turns it into a
-        // 500 — so the pipeline stays honest about failures.
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('controller exploded');
+        // The Kernel answers with the context's error handler, so a controller that
+        // throws produces a 500 instead of escaping the request boundary. The loop's
+        // own catch remains for failures of the worker itself.
+        $response = $worker->dispatch(self::request('GET', '/boom'));
 
-        $worker->dispatch(self::request('GET', '/boom'));
+        $this->assertSame(500, $response->status);
+        $this->assertStringNotContainsString('controller exploded', $response->body);
     }
 
     public function testResponseHeadersBecomeOrderedPairs(): void
     {
-        $worker = $this->worker(static fn (): AzeraResponse => (new AzeraResponse())
-            ->setStatus(201)
-            ->replaceHeader('Content-Type: application/json')
-            ->replaceHeader('X-Trace: abc')
-            ->write('{"ok":true}'));
+        $worker = $this->worker(new class implements NotFoundHandlerInterface {
+            public function for(AzeraRequest $request): AzeraResponse
+            {
+                return (new AzeraResponse())
+                    ->setStatus(201)
+                    ->setHeader('Content-Type: application/json')
+                    ->setHeader('X-Trace: abc')
+                    ->write('{"ok":true}');
+            }
+        });
 
         $response = $worker->dispatch(self::request('GET', '/nope'));
 

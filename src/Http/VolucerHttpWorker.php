@@ -6,12 +6,12 @@ namespace Azera\Volucer\Http;
 
 use Azera\AppContext;
 use Azera\Core\Dispatcher;
+use Azera\Core\Kernel;
+use Azera\Core\NotFoundHandlerInterface;
 use Azera\Core\Router;
 use Azera\Http\Request as AzeraRequest;
-use Azera\Http\Response as AzeraResponse;
 use Volucer\Session;
 use Azera\Volucer\Http\Adapter\VolucerToAzeraRequest;
-use Closure;
 use Clarity\Debug\DumpHaltException;
 use Volucer\Request as VolucerRequest;
 use Volucer\Response as VolucerResponse;
@@ -51,15 +51,14 @@ final class VolucerHttpWorker
     private Session $session;
 
     /**
-     * @param Closure(string $path, string $method): AzeraResponse|null $notFoundHandler
-     *        Invoked when no route matches. Return a response to send it, or
-     *        null to fall back to a plain 404.
+     * @param NotFoundHandlerInterface|null $notFoundHandler Overrides the context's 404
+     *        policy. An application normally registers one on the context instead.
      */
     public function __construct(
         private readonly AppContext $context,
         private readonly Router $router,
         private readonly Dispatcher $dispatcher,
-        private readonly ?Closure $notFoundHandler = null,
+        private readonly ?NotFoundHandlerInterface $notFoundHandler = null,
     ) {
         $this->session = new Session();
     }
@@ -125,14 +124,13 @@ final class VolucerHttpWorker
         $_COOKIE = $request->cookies();
         $this->session->beginWithCookies($_COOKIE);
 
-        $path = $azeraRequest->path();
-        $method = $azeraRequest->method();
-
-        $route = $this->router->match($path, $method);
-
-        $response = $route === null
-            ? $this->notFound($path, $method)
-            : $this->dispatcher->dispatch($route);
+        // The Kernel owns routing, the 404/405 distinction, the application's
+        // 404 policy and the error boundary, so this worker and the FPM entry
+        // point answer the same request the same way. Anything that escapes here
+        // is a failure of the worker itself, and run() still catches it so one bad
+        // request cannot take the process down.
+        $response = (new Kernel($this->context, $this->router, $this->dispatcher, $this->notFoundHandler))
+            ->handle($azeraRequest);
 
         return new VolucerResponse(
             $response->getStatus(),
@@ -157,30 +155,6 @@ final class VolucerHttpWorker
         }
 
         return $headers;
-    }
-
-    /**
-     * The 404 path, with the application's optional override.
-     */
-    private function notFound(string $path, string $method): AzeraResponse
-    {
-        if ($this->notFoundHandler === null) {
-            return AzeraResponse::status(404);
-        }
-
-        $response = ($this->notFoundHandler)($path, $method);
-
-        if ($response === null) {
-            return AzeraResponse::status(404);
-        }
-
-        if (!$response instanceof AzeraResponse) {
-            throw new \RuntimeException(
-                'The not-found handler must return an Azera\Http\Response or null.'
-            );
-        }
-
-        return $response;
     }
 
     /**
